@@ -6,6 +6,26 @@ use tokio_postgres::{Client, NoTls, Row};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, NaiveDate, NaiveTime, Utc};
+use egui_extras::install_image_loaders;
+
+// Include PNG icons (32px for better quality and scalability)
+const CONNECT_ICON: &[u8] = include_bytes!("../assets/icons/connect.png");
+const DISCONNECT_ICON: &[u8] = include_bytes!("../assets/icons/disconnect.png");
+const ADD_ICON: &[u8] = include_bytes!("../assets/icons/add.png");
+const TABLE_ICON: &[u8] = include_bytes!("../assets/icons/table.png");
+const DATA_ICON: &[u8] = include_bytes!("../assets/icons/data.png");
+const SCHEMA_ICON: &[u8] = include_bytes!("../assets/icons/schema.png");
+const CLOSE_ICON: &[u8] = include_bytes!("../assets/icons/close.png");
+const PLAY_ICON: &[u8] = include_bytes!("../assets/icons/play.png");
+const QUERY_ICON: &[u8] = include_bytes!("../assets/icons/query.png");
+const ERROR_ICON: &[u8] = include_bytes!("../assets/icons/error.png");
+const SAVE_ICON: &[u8] = include_bytes!("../assets/icons/save.png");
+const EDIT_ICON: &[u8] = include_bytes!("../assets/icons/edit.png");
+const DELETE_ICON: &[u8] = include_bytes!("../assets/icons/delete.png");
+const TEST_ICON: &[u8] = include_bytes!("../assets/icons/test.png");
+const INFO_ICON: &[u8] = include_bytes!("../assets/icons/info.png");
+const CANCEL_ICON: &[u8] = include_bytes!("../assets/icons/cancel.png");
+const RESULTS_ICON: &[u8] = include_bytes!("../assets/icons/results.png");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DatabaseConnection {
@@ -122,6 +142,34 @@ impl Default for PostgresGuiApp {
 }
 
 impl PostgresGuiApp {
+    // Helper function to create icon buttons using egui's built-in image_and_text method
+    fn icon_button(ui: &mut egui::Ui, icon_bytes: &'static [u8], text: &str) -> egui::Response {
+        let icon_image = egui::Image::from_bytes(format!("icon_{}", text), icon_bytes)
+            .max_size(egui::Vec2::new(16.0, 16.0))
+            .tint(ui.visuals().text_color()); // Tint with theme's text color for proper contrast
+        
+        ui.add(egui::Button::image_and_text(icon_image, text))
+    }
+    
+    // Helper function to create small icon buttons
+    fn small_icon_button(ui: &mut egui::Ui, icon_bytes: &'static [u8], text: &str) -> egui::Response {
+        let icon_image = egui::Image::from_bytes(format!("small_icon_{}", text), icon_bytes)
+            .max_size(egui::Vec2::new(14.0, 14.0))
+            .tint(ui.visuals().text_color());
+        
+        ui.add(egui::Button::image_and_text(icon_image, text).small())
+    }
+    
+    // Helper function to create icon-only buttons
+    fn icon_only_button(ui: &mut egui::Ui, icon_bytes: &'static [u8], tooltip: &str) -> egui::Response {
+        let icon_image = egui::Image::from_bytes(format!("icon_only_{}", tooltip), icon_bytes)
+            .max_size(egui::Vec2::new(16.0, 16.0))
+            .tint(ui.visuals().text_color());
+        
+        ui.add(egui::ImageButton::new(icon_image))
+            .on_hover_text(tooltip)
+    }
+
     fn load_connections() -> Vec<DatabaseConnection> {
         if let Some(config_dir) = dirs::config_dir() {
             let config_file = config_dir.join("postgres-gui").join("connections.json");
@@ -681,7 +729,7 @@ impl eframe::App for PostgresGuiApp {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if self.current_connection.is_some() {
-                    if ui.button("Disconnect").clicked() {
+                    if Self::icon_button(ui, DISCONNECT_ICON, "Disconnect").clicked() {
                         // Disconnect from database
                         self.current_connection = None;
                         self.db_sender = None;
@@ -693,7 +741,7 @@ impl eframe::App for PostgresGuiApp {
                         self.start_database_worker(ctx);
                     }
                 } else {
-                    if ui.button("Connect").clicked() {
+                    if Self::icon_button(ui, CONNECT_ICON, "Connect").clicked() {
                         self.show_connection_wizard = true;
                         self.connection_wizard = ConnectionWizard::default();
                     }
@@ -701,7 +749,11 @@ impl eframe::App for PostgresGuiApp {
 
                 if let Some(conn) = &self.current_connection {
                     ui.separator();
-                    ui.label(format!("📡 Connected to: {}", conn.name));
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Image::from_bytes("connected_icon", CONNECT_ICON)
+                            .fit_to_exact_size(egui::Vec2::new(18.0, 18.0)));
+                        ui.label(format!("Connected to: {}", conn.name));
+                    });
                 }
 
                 if self.loading {
@@ -710,7 +762,7 @@ impl eframe::App for PostgresGuiApp {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("➕ New Query").clicked() {
+                    if Self::icon_button(ui, ADD_ICON, "New Query").clicked() {
                         let tab = Tab {
                             id: uuid::Uuid::new_v4().to_string(),
                             title: "Query".to_string(),
@@ -730,7 +782,11 @@ impl eframe::App for PostgresGuiApp {
 
         // Left panel for table browser
         egui::SidePanel::left("table_browser").resizable(true).show(ctx, |ui| {
-            ui.heading("📋 Tables");
+            ui.horizontal(|ui| {
+                ui.add(egui::Image::from_bytes("tables_icon", TABLE_ICON)
+                    .fit_to_exact_size(egui::Vec2::new(20.0, 20.0)));
+                ui.heading("Tables");
+            });
             ui.separator();
 
             if self.current_connection.is_some() {
@@ -738,11 +794,13 @@ impl eframe::App for PostgresGuiApp {
                     for table in &self.tables.clone() {
                         ui.group(|ui| {
                             ui.horizontal(|ui| {
-                                ui.label(format!("📊 {}.{}", table.schema, table.name));
+                                ui.add(egui::Image::from_bytes(format!("table_icon_{}", table.name), TABLE_ICON)
+                                    .fit_to_exact_size(egui::Vec2::new(16.0, 16.0)));
+                                ui.label(format!("{}.{}", table.schema, table.name));
                             });
                             
                             ui.horizontal(|ui| {
-                                if ui.small_button("📄 Data").clicked() {
+                                if Self::small_icon_button(ui, DATA_ICON, "Data").clicked() {
                                     let tab_id = uuid::Uuid::new_v4().to_string();
                                     let tab = Tab {
                                         id: tab_id.clone(),
@@ -761,7 +819,7 @@ impl eframe::App for PostgresGuiApp {
                                     }
                                 }
                                 
-                                if ui.small_button("⚡ Schema").clicked() {
+                                if Self::small_icon_button(ui, SCHEMA_ICON, "Schema").clicked() {
                                     let tab_id = uuid::Uuid::new_v4().to_string();
                                     let tab = Tab {
                                         id: tab_id.clone(),
@@ -785,7 +843,11 @@ impl eframe::App for PostgresGuiApp {
                 });
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label("❌ No connection");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Image::from_bytes("no_connection_icon", ERROR_ICON)
+                            .fit_to_exact_size(egui::Vec2::new(18.0, 18.0)));
+                        ui.label("No connection");
+                    });
                 });
             }
         });
@@ -805,7 +867,7 @@ impl eframe::App for PostgresGuiApp {
                                 self.active_tab_index = Some(i);
                             }
                             
-                            if ui.small_button("❌").clicked() {
+                            if Self::icon_only_button(ui, CLOSE_ICON, "Close tab").clicked() {
                                 tabs_to_close.push(i);
                             }
                         });
@@ -826,7 +888,11 @@ impl eframe::App for PostgresGuiApp {
                     if let Some(tab) = self.tabs.get_mut(active_index) {
                         match &mut tab.content {
                             TabContent::TableData { table, data, columns, loading } => {
-                                ui.heading(format!("📊 Data: {}.{}", table.schema, table.name));
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::Image::from_bytes("data_heading_icon", DATA_ICON)
+                                        .fit_to_exact_size(egui::Vec2::new(22.0, 22.0)));
+                                    ui.heading(format!("Data: {}.{}", table.schema, table.name));
+                                });
                                 
                                 if *loading {
                                     ui.centered_and_justified(|ui| {
@@ -863,7 +929,11 @@ impl eframe::App for PostgresGuiApp {
                                 }
                             }
                             TabContent::TableSchema { table, columns, loading } => {
-                                ui.heading(format!("⚡ Schema: {}.{}", table.schema, table.name));
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::Image::from_bytes("schema_heading_icon", SCHEMA_ICON)
+                                        .fit_to_exact_size(egui::Vec2::new(22.0, 22.0)));
+                                    ui.heading(format!("Schema: {}.{}", table.schema, table.name));
+                                });
                                 
                                 if *loading {
                                     ui.centered_and_justified(|ui| {
@@ -895,10 +965,14 @@ impl eframe::App for PostgresGuiApp {
                                 }
                             }
                             TabContent::Query { sql, results, columns, loading, error } => {
-                                ui.heading("💻 Query");
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::Image::from_bytes("query_heading_icon", QUERY_ICON)
+                                        .fit_to_exact_size(egui::Vec2::new(22.0, 22.0)));
+                                    ui.heading("Query");
+                                });
                                 
                                 ui.horizontal(|ui| {
-                                    if ui.button("▶️ Execute").clicked() && !sql.is_empty() {
+                                    if Self::icon_button(ui, PLAY_ICON, "Execute").clicked() && !sql.is_empty() {
                                         *loading = true;
                                         *error = None;
                                         
@@ -927,9 +1001,17 @@ impl eframe::App for PostgresGuiApp {
                                 
                                 // Results
                                 if let Some(error_msg) = error {
-                                    ui.colored_label(egui::Color32::RED, format!("❌ Error: {}", error_msg));
+                                    ui.horizontal(|ui| {
+                                        ui.add(egui::Image::from_bytes("error_result_icon", ERROR_ICON)
+                                            .fit_to_exact_size(egui::Vec2::new(18.0, 18.0)));
+                                        ui.colored_label(egui::Color32::RED, format!("Error: {}", error_msg));
+                                    });
                                 } else if let Some(data) = results {
-                                    ui.label(format!("📊 Results ({} rows):", data.len()));
+                                    ui.horizontal(|ui| {
+                                        ui.add(egui::Image::from_bytes("results_icon", RESULTS_ICON)
+                                            .fit_to_exact_size(egui::Vec2::new(18.0, 18.0)));
+                                        ui.label(format!("Results ({} rows):", data.len()));
+                                    });
                                     
                                     if data.is_empty() {
                                         ui.label("No results");
@@ -966,12 +1048,24 @@ impl eframe::App for PostgresGuiApp {
                 ui.centered_and_justified(|ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(100.0);
-                        ui.heading("🚀 PostgreSQL GUI");
+                        ui.heading("PostgreSQL GUI");
                         ui.add_space(20.0);
                         ui.label("Welcome! Get started by:");
-                        ui.label("1. 🔌 Connecting to a database");
-                        ui.label("2. 📋 Browsing tables in the sidebar");
-                        ui.label("3. ➕ Creating a new query tab");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Image::from_bytes("welcome_connect_icon", CONNECT_ICON)
+                                .fit_to_exact_size(egui::Vec2::new(18.0, 18.0)));
+                            ui.label("1. Connecting to a database");
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Image::from_bytes("welcome_tables_icon", TABLE_ICON)
+                                .fit_to_exact_size(egui::Vec2::new(18.0, 18.0)));
+                            ui.label("2. Browsing tables in the sidebar");
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Image::from_bytes("welcome_query_icon", ADD_ICON)
+                                .fit_to_exact_size(egui::Vec2::new(18.0, 18.0)));
+                            ui.label("3. Creating a new query tab");
+                        });
                     });
                 });
             }
@@ -979,7 +1073,7 @@ impl eframe::App for PostgresGuiApp {
 
         // Connection wizard modal
         if self.show_connection_wizard {
-            egui::Window::new("🔧 Connection Manager")
+            egui::Window::new("Connection Manager")
                 .collapsible(false)
                 .resizable(true)
                 .default_width(600.0)
@@ -991,7 +1085,7 @@ impl eframe::App for PostgresGuiApp {
 
         // Error dialog
         if let Some(error) = &self.error_message.clone() {
-            egui::Window::new("❌ Error")
+            egui::Window::new("Error")
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -1008,7 +1102,11 @@ impl eframe::App for PostgresGuiApp {
 impl PostgresGuiApp {
     fn show_connection_wizard_ui(&mut self, ui: &mut egui::Ui) {
         // Connection list
-        ui.heading("💾 Saved Connections");
+        ui.horizontal(|ui| {
+            ui.add(egui::Image::from_bytes("saved_connections_icon", SAVE_ICON)
+                .fit_to_exact_size(egui::Vec2::new(20.0, 20.0)));
+            ui.heading("Saved Connections");
+        });
         ui.separator();
 
         let mut connection_to_edit = None;
@@ -1025,21 +1123,15 @@ impl PostgresGuiApp {
                         });
                         
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("🔌 Connect").clicked() {
+                            if Self::icon_button(ui, CONNECT_ICON, "Connect").clicked() {
                                 connection_to_connect = Some(conn.clone());
                             }
-                            
-                            // Use .button with egui::RichText to avoid the extra square after the emoji icon.
-                            // Use egui's built-in icon support for buttons, or fallback to text if not available.
-                            // The emoji approach does not render as expected on all platforms.
-                            // Instead, use egui's `include_image!` macro or `ImageButton` with custom SVG/PNG icons if you want pixel-perfect icons.
-                            // For now, use simple text labels as a reliable fallback.
 
-                            if ui.button("Delete").clicked() {
+                            if Self::icon_button(ui, DELETE_ICON, "Delete").clicked() {
                                 connection_to_delete = Some(conn.id.clone());
                             }
 
-                            if ui.button("Edit").clicked() {
+                            if Self::icon_button(ui, EDIT_ICON, "Edit").clicked() {
                                 connection_to_edit = Some(conn.clone());
                             }
                         });
@@ -1079,10 +1171,12 @@ impl PostgresGuiApp {
         ui.separator();
 
         // Connection form
-        ui.heading(if self.connection_wizard.editing_id.is_some() {
-            "📝 Edit Connection"
-        } else {
-            "➕ New Connection"
+        ui.horizontal(|ui| {
+            let icon = if self.connection_wizard.editing_id.is_some() { EDIT_ICON } else { ADD_ICON };
+            let text = if self.connection_wizard.editing_id.is_some() { "Edit Connection" } else { "New Connection" };
+            ui.add(egui::Image::from_bytes("connection_form_icon", icon)
+                .fit_to_exact_size(egui::Vec2::new(20.0, 20.0)));
+            ui.heading(text);
         });
 
         ui.horizontal(|ui| {
@@ -1099,14 +1193,14 @@ impl PostgresGuiApp {
             }
         });
 
-        ui.collapsing("💡 Connection URL Examples", |ui| {
+        ui.collapsing("Connection URL Examples", |ui| {
             ui.label("Local: postgres://username:password@localhost:5432/database");
             ui.label("Remote: postgres://user:pass@host:port/db");
             ui.label("With SSL: postgres://user:pass@host:port/db?sslmode=require");
         });
 
         ui.horizontal(|ui| {
-            if ui.button("🔍 Test Connection").clicked() && !self.connection_wizard.url.is_empty() {
+            if Self::icon_button(ui, TEST_ICON, "Test Connection").clicked() && !self.connection_wizard.url.is_empty() {
                 self.connection_wizard.testing = true;
                 self.connection_wizard.test_result = None;
                 
@@ -1128,7 +1222,7 @@ impl PostgresGuiApp {
         ui.separator();
 
         ui.horizontal(|ui| {
-            if ui.button("💾 Save").clicked() && !self.connection_wizard.name.is_empty() && !self.connection_wizard.url.is_empty() {
+            if Self::icon_button(ui, SAVE_ICON, "Save").clicked() && !self.connection_wizard.name.is_empty() && !self.connection_wizard.url.is_empty() {
                 if let Some(editing_id) = &self.connection_wizard.editing_id {
                     // Update existing connection
                     if let Some(conn) = self.connections.iter_mut().find(|c| c.id == *editing_id) {
@@ -1149,7 +1243,7 @@ impl PostgresGuiApp {
                 self.connection_wizard = ConnectionWizard::default();
             }
 
-            if ui.button("❌ Cancel").clicked() {
+            if Self::icon_button(ui, CANCEL_ICON, "Cancel").clicked() {
                 self.show_connection_wizard = false;
             }
         });
@@ -1169,7 +1263,9 @@ async fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "PostgreSQL GUI",
         options,
-        Box::new(|_cc| {
+        Box::new(|cc| {
+            // Install image loaders to support PNG files
+            install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(PostgresGuiApp::default()))
         }),
     )
