@@ -64,6 +64,16 @@ pub async fn start_database_worker(
                     Err(e) => DatabaseResponse::ConnectionTestResult(false, format!("Connection failed: {}", e)),
                 }
             }
+            DatabaseMessage::GetTableRowCount(table, tab_id) => {
+                if let Some(ref client) = client {
+                    match get_table_row_count(client, &table).await {
+                        Ok(count) => DatabaseResponse::TableRowCount(tab_id, count),
+                        Err(e) => DatabaseResponse::Error(format!("Failed to get row count: {}", e)),
+                    }
+                } else {
+                    DatabaseResponse::Error("Not connected to database".to_string())
+                }
+            }
         };
 
         if response_sender.send(response).is_err() {
@@ -229,6 +239,19 @@ async fn execute_query(client: &Arc<Mutex<Client>>, sql: &str) -> Result<(Vec<Ha
     }
     
     Ok((data, columns))
+}
+
+async fn get_table_row_count(client: &Arc<Mutex<Client>>, table: &TableInfo) -> Result<i64> {
+    let client = client.lock().await;
+    let query = format!("SELECT COUNT(*) FROM {}.{}", table.schema, table.name);
+    let rows = client.query(&query, &[]).await?;
+    
+    if let Some(row) = rows.first() {
+        let count: i64 = row.get(0);
+        Ok(count)
+    } else {
+        Ok(0)
+    }
 }
 
 fn is_builtin_type(type_name: &str) -> bool {

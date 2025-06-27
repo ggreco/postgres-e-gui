@@ -30,6 +30,7 @@ pub enum TabContent {
         data: Vec<HashMap<String, String>>,
         columns: Vec<String>,
         loading: bool,
+        total_rows: Option<i64>,
     },
     TableSchema { 
         table: TableInfo, 
@@ -59,6 +60,7 @@ pub enum DatabaseMessage {
     LoadTableSchema(TableInfo, String), // table, tab_id
     ExecuteQuery(String, String), // sql, tab_id
     TestConnection(String), // url
+    GetTableRowCount(TableInfo, String), // table, tab_id
 }
 
 #[derive(Debug)]
@@ -69,6 +71,7 @@ pub enum DatabaseResponse {
     QueryResult(String, Vec<HashMap<String, String>>, Vec<String>), // tab_id, data, columns
     Error(String),
     ConnectionTestResult(bool, String),
+    TableRowCount(String, i64), // tab_id, count
 }
 
 #[derive(Default)]

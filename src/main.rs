@@ -129,6 +129,13 @@ impl PostgresGuiApp {
                         format!("❌ {}", message)
                     });
                 }
+                DatabaseResponse::TableRowCount(tab_id, count) => {
+                    if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        if let TabContent::TableData { total_rows, .. } = &mut tab.content {
+                            *total_rows = Some(count);
+                        }
+                    }
+                }
             }
         }
     }
@@ -183,54 +190,68 @@ impl eframe::App for PostgresGuiApp {
                     
                     let tables = self.tables.clone();
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        for table in &tables {
-                            ui.group(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.vertical(|ui| {
-                                        ui.strong(&table.name);
-                                        ui.small(&table.schema);
-                                    });
-                                    
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        if small_icon_button(ui, SCHEMA_ICON, "Schema").clicked() {
-                                            let tab_id = uuid::Uuid::new_v4().to_string();
-                                            let tab = Tab {
-                                                id: tab_id.clone(),
-                                                title: format!("{} Schema", table.name),
-                                                content: TabContent::TableSchema { 
-                                                    table: table.clone(), 
-                                                    columns: Vec::new(),
-                                                    loading: true,
-                                                },
-                                            };
-                                            self.add_tab(tab);
+                                                for table in &tables {
+                            ui.allocate_ui_with_layout(
+                                egui::Vec2::new(ui.available_width(), 0.0),
+                                egui::Layout::top_down(egui::Align::LEFT),
+                                |ui| {
+                                    ui.group(|ui| {
+                                        ui.set_min_width(ui.available_width());
+                                        ui.vertical(|ui| {
+                                            // First line: table name and schema
+                                            ui.horizontal(|ui| {
+                                                ui.add(egui::Image::from_bytes("table_icon", TABLE_ICON)
+                                                    .fit_to_exact_size(egui::Vec2::new(16.0, 16.0))
+                                                    .tint(ui.visuals().text_color()));
+                                                ui.strong(&table.name);
+                                                ui.small(format!("({})", table.schema));
+                                            });
                                             
-                                            if let Some(sender) = &self.db_sender {
-                                                let _ = sender.send(crate::models::DatabaseMessage::LoadTableSchema(table.clone(), tab_id));
-                                            }
-                                        }
-                                        
-                                        if small_icon_button(ui, DATA_ICON, "Data").clicked() {
-                                            let tab_id = uuid::Uuid::new_v4().to_string();
-                                            let tab = Tab {
-                                                id: tab_id.clone(),
-                                                title: table.name.clone(),
-                                                content: TabContent::TableData { 
-                                                    table: table.clone(), 
-                                                    data: Vec::new(),
-                                                    columns: Vec::new(),
-                                                    loading: true,
-                                                },
-                                            };
-                                            self.add_tab(tab);
-                                            
-                                            if let Some(sender) = &self.db_sender {
-                                                let _ = sender.send(crate::models::DatabaseMessage::LoadTableData(table.clone(), tab_id));
-                                            }
-                                        }
+                                            // Second line: buttons
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                if small_icon_button(ui, DATA_ICON, "Data").clicked() {
+                                                    let tab_id = uuid::Uuid::new_v4().to_string();
+                                                    let tab = Tab {
+                                                        id: tab_id.clone(),
+                                                        title: table.name.clone(),
+                                                        content: TabContent::TableData { 
+                                                            table: table.clone(), 
+                                                            data: Vec::new(),
+                                                            columns: Vec::new(),
+                                                            loading: true,
+                                                            total_rows: None,
+                                                        },
+                                                    };
+                                                    self.add_tab(tab);
+                                                    
+                                                    if let Some(sender) = &self.db_sender {
+                                                        let _ = sender.send(crate::models::DatabaseMessage::LoadTableData(table.clone(), tab_id.clone()));
+                                                        let _ = sender.send(crate::models::DatabaseMessage::GetTableRowCount(table.clone(), tab_id));
+                                                    }
+                                                }
+                                                
+                                                if small_icon_button(ui, SCHEMA_ICON, "Schema").clicked() {
+                                                    let tab_id = uuid::Uuid::new_v4().to_string();
+                                                    let tab = Tab {
+                                                        id: tab_id.clone(),
+                                                        title: format!("{} Schema", table.name),
+                                                        content: TabContent::TableSchema { 
+                                                            table: table.clone(), 
+                                                            columns: Vec::new(),
+                                                            loading: true,
+                                                        },
+                                                    };
+                                                    self.add_tab(tab);
+                                                    
+                                                    if let Some(sender) = &self.db_sender {
+                                                        let _ = sender.send(crate::models::DatabaseMessage::LoadTableSchema(table.clone(), tab_id));
+                                                    }
+                                                }
+                                            });
+                                        });
                                     });
-                                });
-                            });
+                                },
+                            );
                         }
                     });
                 });
@@ -319,29 +340,49 @@ impl eframe::App for PostgresGuiApp {
                 if let Some(active_index) = self.active_tab_index {
                     if let Some(tab) = self.tabs.get_mut(active_index) {
                         match &mut tab.content {
-                            TabContent::TableData { data, columns, loading, .. } => {
+                            TabContent::TableData { data, columns, loading, total_rows, .. } => {
                                 if *loading {
                                     ui.centered_and_justified(|ui| {
                                         ui.spinner();
                                         ui.label("Loading table data...");
                                     });
                                 } else {
-                                    egui::ScrollArea::both().show(ui, |ui| {
-                                        egui::Grid::new("data_grid").striped(true).show(ui, |ui| {
-                                            // Header
-                                            for column in columns.iter() {
-                                                ui.strong(column);
-                                            }
-                                            ui.end_row();
-                                            
-                                            // Data rows
-                                            for row in data.iter() {
-                                                for column in columns.iter() {
-                                                    let null_string = "NULL".to_string();
-                                                    let value = row.get(column).unwrap_or(&null_string);
-                                                    ui.label(value);
+                                    ui.vertical(|ui| {
+                                        // Table data in scroll area (reserve space for status bar)
+                                        let available_height = ui.available_height() - 40.0; // Reserve space for status bar
+                                        egui::ScrollArea::both()
+                                            .max_height(available_height)
+                                            .show(ui, |ui| {
+                                                egui::Grid::new("data_grid").striped(true).show(ui, |ui| {
+                                                    // Header
+                                                    for column in columns.iter() {
+                                                        ui.strong(column);
+                                                    }
+                                                    ui.end_row();
+                                                    
+                                                    // Data rows
+                                                    for row in data.iter() {
+                                                        for column in columns.iter() {
+                                                            let null_string = "NULL".to_string();
+                                                            let value = row.get(column).unwrap_or(&null_string);
+                                                            ui.label(value);
+                                                        }
+                                                        ui.end_row();
+                                                    }
+                                                });
+                                            });
+                                        
+                                        // Status bar with row count (below the table)
+                                        ui.separator();
+                                        ui.horizontal(|ui| {
+                                            ui.add(egui::Image::from_bytes("data_status_icon", DATA_ICON)
+                                                .fit_to_exact_size(egui::Vec2::new(16.0, 16.0))
+                                                .tint(ui.visuals().text_color()));
+                                            ui.label(format!("Showing {} rows", data.len()));
+                                            if let Some(total) = total_rows {
+                                                if *total != data.len() as i64 {
+                                                    ui.label(format!("of {} total rows", total));
                                                 }
-                                                ui.end_row();
                                             }
                                         });
                                     });

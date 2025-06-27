@@ -19,11 +19,25 @@ pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
         for conn in &app.connections {
             ui.group(|ui| {
-                let response = ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.strong(&conn.name);
-                        ui.label(&conn.url);
+                ui.horizontal(|ui| {
+                    // Create an interactive area for the connection info that can detect double-clicks
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::Vec2::new(ui.available_width() - 120.0, 40.0), // Reserve space for buttons
+                        egui::Sense::click()
+                    );
+                    
+                    // Draw the connection info in the allocated area
+                    ui.allocate_ui_at_rect(rect, |ui| {
+                        ui.vertical(|ui| {
+                            ui.strong(&conn.name);
+                            ui.label(&conn.url);
+                        });
                     });
+                    
+                    // Handle double-click to connect
+                    if response.double_clicked() {
+                        connection_to_connect = Some(conn.clone());
+                    }
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if icon_button(ui, CONNECT_ICON, "Connect").clicked() {
@@ -39,11 +53,6 @@ pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
                         }
                     });
                 });
-                
-                // Handle double-click to connect
-                if response.response.double_clicked() {
-                    connection_to_connect = Some(conn.clone());
-                }
             });
         }
     });
