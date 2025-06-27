@@ -677,12 +677,26 @@ impl eframe::App for PostgresGuiApp {
         // Handle async responses
         self.handle_database_responses();
 
-        // Top panel with connect button
+        // Top panel with connect/disconnect button
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("🔌 Connect").clicked() {
-                    self.show_connection_wizard = true;
-                    self.connection_wizard = ConnectionWizard::default();
+                if self.current_connection.is_some() {
+                    if ui.button("Disconnect").clicked() {
+                        // Disconnect from database
+                        self.current_connection = None;
+                        self.db_sender = None;
+                        self.tables.clear();
+                        self.tabs.clear();
+                        self.active_tab_index = None;
+                        self.loading = false;
+                        // Restart the database worker for future connections
+                        self.start_database_worker(ctx);
+                    }
+                } else {
+                    if ui.button("Connect").clicked() {
+                        self.show_connection_wizard = true;
+                        self.connection_wizard = ConnectionWizard::default();
+                    }
                 }
 
                 if let Some(conn) = &self.current_connection {
@@ -747,7 +761,7 @@ impl eframe::App for PostgresGuiApp {
                                     }
                                 }
                                 
-                                if ui.small_button("🏗️ Schema").clicked() {
+                                if ui.small_button("⚡ Schema").clicked() {
                                     let tab_id = uuid::Uuid::new_v4().to_string();
                                     let tab = Tab {
                                         id: tab_id.clone(),
@@ -849,7 +863,7 @@ impl eframe::App for PostgresGuiApp {
                                 }
                             }
                             TabContent::TableSchema { table, columns, loading } => {
-                                ui.heading(format!("🏗️ Schema: {}.{}", table.schema, table.name));
+                                ui.heading(format!("⚡ Schema: {}.{}", table.schema, table.name));
                                 
                                 if *loading {
                                     ui.centered_and_justified(|ui| {
@@ -1004,7 +1018,7 @@ impl PostgresGuiApp {
         egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
             for conn in &self.connections {
                 ui.group(|ui| {
-                    ui.horizontal(|ui| {
+                    let response = ui.horizontal(|ui| {
                         ui.vertical(|ui| {
                             ui.strong(&conn.name);
                             ui.label(&conn.url);
@@ -1015,15 +1029,26 @@ impl PostgresGuiApp {
                                 connection_to_connect = Some(conn.clone());
                             }
                             
-                            if ui.button("🗑️ Delete").clicked() {
+                            // Use .button with egui::RichText to avoid the extra square after the emoji icon.
+                            // Use egui's built-in icon support for buttons, or fallback to text if not available.
+                            // The emoji approach does not render as expected on all platforms.
+                            // Instead, use egui's `include_image!` macro or `ImageButton` with custom SVG/PNG icons if you want pixel-perfect icons.
+                            // For now, use simple text labels as a reliable fallback.
+
+                            if ui.button("Delete").clicked() {
                                 connection_to_delete = Some(conn.id.clone());
                             }
-                            
-                            if ui.button("✏️ Edit").clicked() {
+
+                            if ui.button("Edit").clicked() {
                                 connection_to_edit = Some(conn.clone());
                             }
                         });
                     });
+                    
+                    // Handle double-click to connect
+                    if response.response.double_clicked() {
+                        connection_to_connect = Some(conn.clone());
+                    }
                 });
             }
         });
@@ -1055,7 +1080,7 @@ impl PostgresGuiApp {
 
         // Connection form
         ui.heading(if self.connection_wizard.editing_id.is_some() {
-            "✏️ Edit Connection"
+            "📝 Edit Connection"
         } else {
             "➕ New Connection"
         });
@@ -1069,7 +1094,7 @@ impl PostgresGuiApp {
             ui.label("URL:");
             ui.text_edit_singleline(&mut self.connection_wizard.url);
             
-            if ui.button("📋").on_hover_text("Paste example").clicked() {
+            if ui.button("Paste example").clicked() {
                 self.connection_wizard.url = "postgres://postgres:postgres@localhost:5432/database".to_string();
             }
         });
@@ -1081,7 +1106,7 @@ impl PostgresGuiApp {
         });
 
         ui.horizontal(|ui| {
-            if ui.button("🧪 Test Connection").clicked() && !self.connection_wizard.url.is_empty() {
+            if ui.button("🔍 Test Connection").clicked() && !self.connection_wizard.url.is_empty() {
                 self.connection_wizard.testing = true;
                 self.connection_wizard.test_result = None;
                 
