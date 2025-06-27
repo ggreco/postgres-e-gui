@@ -5,6 +5,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_postgres::{Client, NoTls, Row};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use chrono::{DateTime, NaiveDateTime, NaiveDate, NaiveTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DatabaseConnection {
@@ -278,7 +279,34 @@ impl PostgresGuiApp {
 
     async fn load_table_data(client: &Arc<Mutex<Client>>, table: &TableInfo) -> Result<(Vec<HashMap<String, String>>, Vec<String>)> {
         let client = client.lock().await;
-        let query = format!("SELECT * FROM {}.{} LIMIT 1000", table.schema, table.name);
+        
+        // First, get column information to detect enums and cast them to text
+        let column_info = client.query(
+            "SELECT c.column_name, c.data_type, c.udt_name, t.typtype
+             FROM information_schema.columns c
+             LEFT JOIN pg_type t ON t.typname = c.udt_name
+             WHERE c.table_schema = $1 AND c.table_name = $2 
+             ORDER BY c.ordinal_position",
+            &[&table.schema, &table.name],
+        ).await?;
+
+        // Build a query that casts enum columns to text
+        let mut select_parts = Vec::new();
+        for row in &column_info {
+            let column_name: String = row.get(0);
+            let data_type: String = row.get(1);
+            let typtype: Option<i8> = row.get(3);
+            
+            // If it's a user-defined type (likely an enum), cast to text
+            if data_type == "USER-DEFINED" && typtype == Some(101) { // 'e' as i8 is 101
+                select_parts.push(format!("{}::text as {}", column_name, column_name));
+            } else {
+                select_parts.push(column_name);
+            }
+        }
+        
+        let query = format!("SELECT {} FROM {}.{} LIMIT 1000", 
+                           select_parts.join(", "), table.schema, table.name);
         let rows = client.query(&query, &[]).await?;
         
         let columns: Vec<String> = if !rows.is_empty() {
@@ -287,13 +315,35 @@ impl PostgresGuiApp {
             Vec::new()
         };
         
+        // Create a mapping of column names to their original types for enum display
+        let mut enum_types: HashMap<String, String> = HashMap::new();
+        for row in &column_info {
+            let column_name: String = row.get(0);
+            let data_type: String = row.get(1);
+            let udt_name: String = row.get(2);
+            let typtype: Option<i8> = row.get(3);
+            
+            if data_type == "USER-DEFINED" && typtype == Some(101) {
+                enum_types.insert(column_name, udt_name);
+            }
+        }
+
         let data: Vec<HashMap<String, String>> = rows
             .iter()
             .map(|row| {
                 let mut map = HashMap::new();
                 for (i, column) in row.columns().iter().enumerate() {
-                    let value = Self::format_cell_value(row, i);
-                    map.insert(column.name().to_string(), value);
+                    let column_name = column.name();
+                    let mut value = Self::format_cell_value(row, i);
+                    
+                    // If this was originally an enum, add the type info
+                    if let Some(enum_type) = enum_types.get(column_name) {
+                        if value != "NULL" {
+                            value = format!("{} ({})", value, enum_type);
+                        }
+                    }
+                    
+                    map.insert(column_name.to_string(), value);
                 }
                 map
             })
@@ -304,23 +354,52 @@ impl PostgresGuiApp {
 
     async fn load_table_schema(client: &Arc<Mutex<Client>>, table: &TableInfo) -> Result<Vec<ColumnInfo>> {
         let client = client.lock().await;
+        
+        // Enhanced query to get more type information including enum values
         let rows = client
             .query(
-                "SELECT column_name, data_type, is_nullable, column_default 
-                 FROM information_schema.columns 
-                 WHERE table_schema = $1 AND table_name = $2 
-                 ORDER BY ordinal_position",
+                "SELECT 
+                    c.column_name, 
+                    c.data_type,
+                    c.is_nullable, 
+                    c.column_default,
+                    c.udt_name,
+                    CASE 
+                        WHEN t.typtype = 'e' THEN 
+                            (SELECT string_agg(e.enumlabel, ', ' ORDER BY e.enumsortorder) 
+                             FROM pg_enum e WHERE e.enumtypid = t.oid)
+                        ELSE NULL 
+                    END as enum_values
+                 FROM information_schema.columns c
+                 LEFT JOIN pg_type t ON t.typname = c.udt_name
+                 WHERE c.table_schema = $1 AND c.table_name = $2 
+                 ORDER BY c.ordinal_position",
                 &[&table.schema, &table.name],
             )
             .await?;
 
         let columns = rows
             .iter()
-            .map(|row| ColumnInfo {
-                name: row.get(0),
-                data_type: row.get(1),
-                is_nullable: row.get::<_, String>(2) == "YES",
-                default_value: row.get(3),
+            .map(|row| {
+                let data_type: String = row.get(1);
+                let udt_name: String = row.get(4);
+                let enum_values: Option<String> = row.get(5);
+                
+                // If it's a user-defined type (enum), show the enum values
+                let display_type = if data_type == "USER-DEFINED" && enum_values.is_some() {
+                    format!("{} ({})", udt_name, enum_values.unwrap_or_default())
+                } else if data_type == "USER-DEFINED" {
+                    udt_name
+                } else {
+                    data_type
+                };
+                
+                ColumnInfo {
+                    name: row.get(0),
+                    data_type: display_type,
+                    is_nullable: row.get::<_, String>(2) == "YES",
+                    default_value: row.get(3),
+                }
             })
             .collect();
 
@@ -352,18 +431,166 @@ impl PostgresGuiApp {
         Ok((data, columns))
     }
 
+    fn is_builtin_type(type_name: &str) -> bool {
+        matches!(type_name,
+            "bool" | "bytea" | "char" | "name" | "int8" | "int2" | "int2vector" |
+            "int4" | "regproc" | "text" | "oid" | "tid" | "xid" | "cid" |
+            "oidvector" | "pg_type" | "pg_attribute" | "pg_proc" | "pg_class" |
+            "json" | "xml" | "pg_node_tree" | "smgr" | "point" | "lseg" |
+            "path" | "box" | "polygon" | "line" | "float4" | "float8" |
+            "abstime" | "reltime" | "tinterval" | "unknown" | "circle" |
+            "cash" | "macaddr" | "inet" | "cidr" | "aclitem" | "bpchar" |
+            "varchar" | "date" | "time" | "timestamp" | "timestamptz" |
+            "interval" | "timetz" | "bit" | "varbit" | "numeric" | "refcursor" |
+            "regprocedure" | "regoper" | "regoperator" | "regclass" | "regtype" |
+            "uuid" | "txid_snapshot" | "pg_lsn" | "tsvector" | "tsquery" |
+            "gtsvector" | "regconfig" | "regdictionary" | "jsonb" | "int4range" |
+            "numrange" | "tsrange" | "tstzrange" | "daterange" | "int8range" |
+            "record" | "cstring" | "any" | "anyarray" | "void" | "trigger" |
+            "language_handler" | "internal" | "opaque" | "anyelement" | "anynonarray" |
+            "anyenum" | "fdw_handler" | "anyrange" | "pg_ddl_command"
+        )
+    }
+
     fn format_cell_value(row: &Row, index: usize) -> String {
         // Handle different PostgreSQL types
+        
+        // Get column type information for better formatting
+        let column_type = row.columns().get(index).map(|col| col.type_());
+        
+        // String types (TEXT, VARCHAR, CHAR, etc.) and ENUMs
         if let Ok(val) = row.try_get::<_, Option<String>>(index) {
-            val.unwrap_or_else(|| "NULL".to_string())
-        } else if let Ok(val) = row.try_get::<_, Option<i32>>(index) {
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
-        } else if let Ok(val) = row.try_get::<_, Option<i64>>(index) {
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
-        } else if let Ok(val) = row.try_get::<_, Option<f64>>(index) {
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
-        } else if let Ok(val) = row.try_get::<_, Option<bool>>(index) {
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
+            let result = val.unwrap_or_else(|| "NULL".to_string());
+            
+            // Special formatting for enum types
+            if let Some(col_type) = column_type {
+                let type_name = col_type.name();
+                // Check if this might be an enum type (custom types are usually enums)
+                if !Self::is_builtin_type(type_name) && result != "NULL" {
+                    return format!("{} ({})", result, type_name);
+                }
+            }
+            
+            return result;
+        }
+        
+        // UUID type
+        if let Ok(val) = row.try_get::<_, Option<uuid::Uuid>>(index) {
+            return val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        // Timestamp types
+        if let Ok(val) = row.try_get::<_, Option<DateTime<Utc>>>(index) {
+            return val.map(|v| v.format("%Y-%m-%d %H:%M:%S UTC").to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        if let Ok(val) = row.try_get::<_, Option<NaiveDateTime>>(index) {
+            return val.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        if let Ok(val) = row.try_get::<_, Option<NaiveDate>>(index) {
+            return val.map(|v| v.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        if let Ok(val) = row.try_get::<_, Option<NaiveTime>>(index) {
+            return val.map(|v| v.format("%H:%M:%S").to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        // Numeric types
+        if let Ok(val) = row.try_get::<_, Option<i16>>(index) {
+            return val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        if let Ok(val) = row.try_get::<_, Option<i32>>(index) {
+            return val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        if let Ok(val) = row.try_get::<_, Option<i64>>(index) {
+            return val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        // Floating point types
+        if let Ok(val) = row.try_get::<_, Option<f32>>(index) {
+            return val.map(|v| {
+                if v.fract() == 0.0 && v.abs() < 1e10 {
+                    format!("{:.0}", v)
+                } else {
+                    format!("{}", v)
+                }
+            }).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        if let Ok(val) = row.try_get::<_, Option<f64>>(index) {
+            return val.map(|v| {
+                if v.fract() == 0.0 && v.abs() < 1e15 {
+                    format!("{:.0}", v)
+                } else {
+                    format!("{}", v)
+                }
+            }).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        // Decimal/Numeric type (handle as string for now)
+        // PostgreSQL NUMERIC/DECIMAL types can be very large, so we'll handle them as strings
+        
+        // Boolean type
+        if let Ok(val) = row.try_get::<_, Option<bool>>(index) {
+            return val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        // Byte arrays (BYTEA)
+        if let Ok(val) = row.try_get::<_, Option<Vec<u8>>>(index) {
+            return val.map(|v| {
+                if v.len() <= 16 {
+                    format!("\\x{}", hex::encode(&v))
+                } else {
+                    format!("\\x{}... ({} bytes)", hex::encode(&v[..8]), v.len())
+                }
+            }).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        // JSON/JSONB types
+        if let Ok(val) = row.try_get::<_, Option<serde_json::Value>>(index) {
+            return val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        // Array types (basic support)
+        if let Ok(val) = row.try_get::<_, Option<Vec<String>>>(index) {
+            return val.map(|v| format!("[{}]", v.join(", "))).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        if let Ok(val) = row.try_get::<_, Option<Vec<i32>>>(index) {
+            return val.map(|v| format!("[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "))).unwrap_or_else(|| "NULL".to_string());
+        }
+        
+        // Fallback: try to handle as enum or unknown type
+        if let Some(column) = row.columns().get(index) {
+            let type_name = column.type_().name();
+            
+            // For custom types (like enums), try to get them as strings
+            if !Self::is_builtin_type(type_name) {
+                // Try to get the raw value as a string representation
+                if let Ok(val) = row.try_get::<_, Option<&str>>(index) {
+                    if let Some(str_val) = val {
+                        return format!("{} ({})", str_val, type_name);
+                    } else {
+                        return "NULL".to_string();
+                    }
+                }
+                
+                // If that fails, try getting it as bytes and convert to string
+                if let Ok(val) = row.try_get::<_, Option<&[u8]>>(index) {
+                    if let Some(bytes) = val {
+                        if let Ok(str_val) = std::str::from_utf8(bytes) {
+                            return format!("{} ({})", str_val, type_name);
+                        }
+                    } else {
+                        return "NULL".to_string();
+                    }
+                }
+            }
+            
+            format!("<{}> (unsupported type)", type_name)
         } else {
             "Unknown".to_string()
         }
@@ -922,3 +1149,7 @@ async fn main() -> Result<(), eframe::Error> {
         }),
     )
 }
+
+// PostgreSQL enum types are now fully supported!
+// Enum values will be displayed as "Home (team_type)" in table data
+// Enum schemas will show "team_type (Home, Away)" in schema view

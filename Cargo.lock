@@ -2543,6 +2543,7 @@ dependencies = [
  "dirs",
  "eframe",
  "egui",
+ "hex",
  "serde",
  "serde_json",
  "tokio",
@@ -2575,8 +2576,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613283563cd90e1dfc3518d548caee47e0e725455ed619881f5cf21f36de4b48"
 dependencies = [
  "bytes",
+ "chrono",
  "fallible-iterator",
  "postgres-protocol",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
