@@ -5,7 +5,7 @@ use crate::ui::icons::*;
 pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
     // Connection list
     ui.horizontal(|ui| {
-        ui.add(egui::Image::from_bytes("saved_connections_icon", SAVE_ICON)
+        ui.add(egui::Image::new(SAVE_ICON.clone())
             .fit_to_exact_size(egui::Vec2::new(20.0, 20.0))
             .tint(ui.visuals().text_color()));
         ui.heading("Saved Connections");
@@ -21,18 +21,20 @@ pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     // Create an interactive area for the connection info that can detect double-clicks
-                    let (rect, response) = ui.allocate_exact_size(
-                        egui::Vec2::new(ui.available_width() - 120.0, 40.0), // Reserve space for buttons
-                        egui::Sense::click()
-                    );
-                    
-                    // Draw the connection info in the allocated area
-                    ui.allocate_ui_at_rect(rect, |ui| {
-                        ui.vertical(|ui| {
-                            ui.strong(&conn.name);
-                            ui.label(&conn.url);
-                        });
-                    });
+                    let response = ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(egui::Rect::from_min_size(
+                                ui.cursor().min,
+                                egui::Vec2::new(ui.available_width() - 120.0, 40.0)
+                            ))
+                            .sense(egui::Sense::click()),
+                        |ui| {
+                            ui.vertical(|ui| {
+                                ui.strong(&conn.name);
+                                ui.label(&conn.url);
+                            });
+                        }
+                    ).response;
                     
                     // Handle double-click to connect
                     if response.double_clicked() {
@@ -40,15 +42,15 @@ pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
                     }
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if icon_button(ui, CONNECT_ICON, "Connect").clicked() {
+                        if icon_button(ui, &CONNECT_ICON, "Connect").clicked() {
                             connection_to_connect = Some(conn.clone());
                         }
 
-                        if icon_button(ui, DELETE_ICON, "Delete").clicked() {
+                        if icon_button(ui, &DELETE_ICON, "Delete").clicked() {
                             connection_to_delete = Some(conn.id.clone());
                         }
 
-                        if icon_button(ui, EDIT_ICON, "Edit").clicked() {
+                        if icon_button(ui, &EDIT_ICON, "Edit").clicked() {
                             connection_to_edit = Some(conn.clone());
                         }
                     });
@@ -84,9 +86,9 @@ pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
 
     // Connection form
     ui.horizontal(|ui| {
-        let icon = if app.connection_wizard.editing_id.is_some() { EDIT_ICON } else { ADD_ICON };
+        let icon = if app.connection_wizard.editing_id.is_some() { &EDIT_ICON } else { &ADD_ICON };
         let text = if app.connection_wizard.editing_id.is_some() { "Edit Connection" } else { "New Connection" };
-        ui.add(egui::Image::from_bytes("connection_form_icon", icon)
+        ui.add(egui::Image::new(icon.clone())
             .fit_to_exact_size(egui::Vec2::new(20.0, 20.0))
             .tint(ui.visuals().text_color()));
         ui.heading(text);
@@ -113,7 +115,7 @@ pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
     });
 
     ui.horizontal(|ui| {
-        if icon_button(ui, TEST_ICON, "Test Connection").clicked() && !app.connection_wizard.url.is_empty() {
+        if icon_button(ui, &TEST_ICON, "Test Connection").clicked() && !app.connection_wizard.url.is_empty() {
             app.connection_wizard.testing = true;
             app.connection_wizard.test_result = None;
             
@@ -135,7 +137,7 @@ pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
     ui.separator();
 
     ui.horizontal(|ui| {
-        if icon_button(ui, SAVE_ICON, "Save").clicked() && !app.connection_wizard.name.is_empty() && !app.connection_wizard.url.is_empty() {
+        if icon_button(ui, &SAVE_ICON, "Save").clicked() && !app.connection_wizard.name.is_empty() && !app.connection_wizard.url.is_empty() {
             if let Some(editing_id) = &app.connection_wizard.editing_id {
                 // Update existing connection
                 if let Some(conn) = app.connections.iter_mut().find(|c| c.id == *editing_id) {
@@ -156,7 +158,7 @@ pub fn show_connection_wizard_ui(app: &mut PostgresGuiApp, ui: &mut egui::Ui) {
             app.connection_wizard = crate::models::ConnectionWizard::default();
         }
 
-        if icon_button(ui, CANCEL_ICON, "Cancel").clicked() {
+        if icon_button(ui, &CANCEL_ICON, "Cancel").clicked() {
             app.show_connection_wizard = false;
         }
     });

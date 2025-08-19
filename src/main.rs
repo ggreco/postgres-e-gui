@@ -157,7 +157,7 @@ impl eframe::App for PostgresGuiApp {
                 
                 if let Some(conn) = &self.current_connection {
                     let conn_name = conn.name.clone();
-                    if icon_button(ui, DISCONNECT_ICON, "Disconnect").clicked() {
+                    if icon_button(ui, &DISCONNECT_ICON, "Disconnect").clicked() {
                         self.current_connection = None;
                         self.tables.clear();
                         self.tabs.clear();
@@ -165,7 +165,7 @@ impl eframe::App for PostgresGuiApp {
                     }
                     ui.label(format!("Connected to: {}", conn_name));
                 } else {
-                    if icon_button(ui, CONNECT_ICON, "Connect").clicked() {
+                    if icon_button(ui, &CONNECT_ICON, "Connect").clicked() {
                         self.show_connection_wizard = true;
                     }
                 }
@@ -181,7 +181,7 @@ impl eframe::App for PostgresGuiApp {
             egui::SidePanel::left("table_browser").resizable(true).show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
-                        ui.add(egui::Image::from_bytes("tables_icon", TABLE_ICON)
+                        ui.add(egui::Image::new(TABLE_ICON.clone())
                             .fit_to_exact_size(egui::Vec2::new(22.0, 22.0))
                             .tint(ui.visuals().text_color()));
                         ui.heading("Tables");
@@ -200,7 +200,7 @@ impl eframe::App for PostgresGuiApp {
                                         ui.vertical(|ui| {
                                             // First line: table name and schema
                                             ui.horizontal(|ui| {
-                                                ui.add(egui::Image::from_bytes("table_icon", TABLE_ICON)
+                                                ui.add(egui::Image::new(TABLE_ICON.clone())
                                                     .fit_to_exact_size(egui::Vec2::new(16.0, 16.0))
                                                     .tint(ui.visuals().text_color()));
                                                 ui.strong(&table.name);
@@ -209,7 +209,7 @@ impl eframe::App for PostgresGuiApp {
                                             
                                             // Second line: buttons
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                if small_icon_button(ui, DATA_ICON, "Data").clicked() {
+                                                if small_icon_button(ui, &DATA_ICON, "Data").clicked() {
                                                     let tab_id = uuid::Uuid::new_v4().to_string();
                                                     let tab = Tab {
                                                         id: tab_id.clone(),
@@ -230,7 +230,7 @@ impl eframe::App for PostgresGuiApp {
                                                     }
                                                 }
                                                 
-                                                if small_icon_button(ui, SCHEMA_ICON, "Schema").clicked() {
+                                                if small_icon_button(ui, &SCHEMA_ICON, "Schema").clicked() {
                                                     let tab_id = uuid::Uuid::new_v4().to_string();
                                                     let tab = Tab {
                                                         id: tab_id.clone(),
@@ -272,7 +272,7 @@ impl eframe::App for PostgresGuiApp {
                         ui.label("Select a table from the sidebar to view its data or schema");
                         ui.separator();
                         
-                        if icon_button(ui, QUERY_ICON, "New Query").clicked() {
+                        if icon_button(ui, &QUERY_ICON, "New Query").clicked() {
                             let tab_id = uuid::Uuid::new_v4().to_string();
                             let tab = Tab {
                                 id: tab_id,
@@ -304,7 +304,7 @@ impl eframe::App for PostgresGuiApp {
                                     self.active_tab_index = Some(i);
                                 }
                                 
-                                if icon_only_button(ui, CLOSE_ICON, "Close tab").clicked() {
+                                if icon_only_button(ui, &CLOSE_ICON, "Close tab").clicked() {
                                     tab_to_close = Some(i);
                                 }
                             });
@@ -313,7 +313,7 @@ impl eframe::App for PostgresGuiApp {
                     
                     ui.separator();
                     
-                    if icon_button(ui, ADD_ICON, "New Query").clicked() {
+                    if icon_button(ui, &ADD_ICON, "New Query").clicked() {
                         let tab_id = uuid::Uuid::new_v4().to_string();
                         let tab = Tab {
                             id: tab_id,
@@ -375,7 +375,7 @@ impl eframe::App for PostgresGuiApp {
                                         // Status bar with row count (below the table)
                                         ui.separator();
                                         ui.horizontal(|ui| {
-                                            ui.add(egui::Image::from_bytes("data_status_icon", DATA_ICON)
+                                            ui.add(egui::Image::new(DATA_ICON.clone())
                                                 .fit_to_exact_size(egui::Vec2::new(16.0, 16.0))
                                                 .tint(ui.visuals().text_color()));
                                             ui.label(format!("Showing {} rows", data.len()));
@@ -419,7 +419,7 @@ impl eframe::App for PostgresGuiApp {
                             TabContent::Query { sql, results, columns, loading, error } => {
                                 ui.vertical(|ui| {
                                     ui.horizontal(|ui| {
-                                        ui.add(egui::Image::from_bytes("query_icon", QUERY_ICON)
+                                        ui.add(egui::Image::new(QUERY_ICON.clone())
                                             .fit_to_exact_size(egui::Vec2::new(20.0, 20.0))
                                             .tint(ui.visuals().text_color()));
                                         ui.heading("SQL Query");
@@ -427,7 +427,7 @@ impl eframe::App for PostgresGuiApp {
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                             if *loading {
                                                 ui.spinner();
-                                            } else if icon_button(ui, PLAY_ICON, "Execute").clicked() {
+                                            } else if icon_button(ui, &PLAY_ICON, "Execute").clicked() {
                                                 if !sql.trim().is_empty() {
                                                     *loading = true;
                                                     *error = None;
@@ -466,14 +466,14 @@ impl eframe::App for PostgresGuiApp {
                                     // Results
                                     if let Some(error_msg) = error {
                                         ui.horizontal(|ui| {
-                                            ui.add(egui::Image::from_bytes("error_icon", ERROR_ICON)
+                                            ui.add(egui::Image::new(ERROR_ICON.clone())
                                                 .fit_to_exact_size(egui::Vec2::new(18.0, 18.0))
                                                 .tint(ui.visuals().error_fg_color));
                                             ui.colored_label(ui.visuals().error_fg_color, error_msg);
                                         });
                                     } else if let Some(data) = results {
                                         ui.horizontal(|ui| {
-                                            ui.add(egui::Image::from_bytes("results_icon", RESULTS_ICON)
+                                            ui.add(egui::Image::new(RESULTS_ICON.clone())
                                                 .fit_to_exact_size(egui::Vec2::new(18.0, 18.0))
                                                 .tint(ui.visuals().text_color()));
                                             ui.heading("Results");
