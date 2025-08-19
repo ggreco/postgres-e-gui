@@ -22,19 +22,19 @@ pub static RESULTS_ICON: egui::ImageSource<'static> = egui::include_image!("../.
 // Helper function to create icon buttons using egui's built-in image_and_text method
 pub fn icon_button(ui: &mut egui::Ui, icon_source: &egui::ImageSource<'static>, text: &str) -> egui::Response {
     let icon_image = egui::Image::new(icon_source.clone())
-        .max_size(egui::Vec2::new(16.0, 16.0))
+        .fit_to_exact_size(egui::Vec2::new(16.0, 16.0))
         .tint(ui.visuals().text_color()); // Tint with theme's text color for proper contrast
     
     ui.add(egui::Button::image_and_text(icon_image, text))
 }
 
-// Helper function to create small icon buttons
+// Helper function to create smaller icon buttons
 pub fn small_icon_button(ui: &mut egui::Ui, icon_source: &egui::ImageSource<'static>, text: &str) -> egui::Response {
     let icon_image = egui::Image::new(icon_source.clone())
-        .max_size(egui::Vec2::new(14.0, 14.0))
-        .tint(ui.visuals().text_color());
+        .fit_to_exact_size(egui::Vec2::new(14.0, 14.0))
+        .tint(ui.visuals().text_color()); // Tint with theme's text color for proper contrast
     
-    ui.add(egui::Button::image_and_text(icon_image, text).small())
+    ui.add(egui::Button::image_and_text(icon_image, text))
 }
 
 // Helper function to create icon-only buttons
